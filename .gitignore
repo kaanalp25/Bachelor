@@ -1,0 +1,7 @@
+# Ignore specific CSV files
+updated_data.csv
+updated_data_with_wirkleistung*
+updated_data_with_wirkleistung_weekday_season
+updated_data_with_wirkleistung_and_weekday
+seasonal_avg_wirkleistung
+updated_data_with_wirkleistung
