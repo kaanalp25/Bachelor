@@ -1,62 +1,61 @@
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Function to determine the season for a given date
-def get_season(date):
-    if pd.isnull(date):
-        return 'Unknown'
-    month, day = date.month, date.day
-    if (11 <= month <= 12) or (1 <= month <= 3 and day <= 20):
-        return 'Winter'
-    elif (5 <= month <= 9) or (month == 10 and day <= 14):
-        return 'Sommer'
-    elif (3 <= month <= 5 and day >= 21) or (9 <= month <= 11 and day >= 15):
-        return 'Übergang'
-    return 'Unknown'
+# Ensure the 'data' directory exists
+input_file_path = 'data/Transformator_Alle.csv'
+os.makedirs('data', exist_ok=True)
 
-# Read the CSV data into a pandas DataFrame
-df = pd.read_csv('Transformator_Alle.csv', delimiter=';', decimal=',')
-
-# Strip any potential leading/trailing whitespace and convert columns
+# Load and preprocess the dataset
+df = pd.read_csv(input_file_path, delimiter=';', decimal=',')
 df['Datum'] = df['Datum'].str.strip()
 df['Uhrzeit'] = df['Uhrzeit'].str.strip()
-df[['P L Sum', 'S L Sum', 'U L1', 'I L1', 'U L2', 'I L2', 'U L3', 'I L3']] = df[['P L Sum', 'S L Sum', 'U L1', 'I L1', 'U L2', 'I L2', 'U L3', 'I L3']].apply(pd.to_numeric, errors='coerce')
+df['Datum_Uhrzeit'] = pd.to_datetime(df['Datum'] + ' ' + df['Uhrzeit'], format='%d.%m.%y %H:%M', errors='coerce')
+df.set_index('Datum_Uhrzeit', inplace=True)
 
-# Calculate 'Wirkleistung' and power factor
+# Numeric conversion and 'Wirkleistung' calculation
+df[['P L Sum', 'S L Sum', 'U L1', 'I L1', 'U L2', 'I L2', 'U L3', 'I L3']] = df[['P L Sum', 'S L Sum', 'U L1', 'I L1', 'U L2', 'I L2', 'U L3', 'I L3']].apply(pd.to_numeric, errors='coerce')
 df['cos_phi'] = df['P L Sum'] / df['S L Sum']
 df['Wirkleistung'] = (df['U L1'] * df['I L1'] + df['U L2'] * df['I L2'] + df['U L3'] * df['I L3']) * df['cos_phi']
+df['Wirkleistung'] = df['Wirkleistung'] / 1000
 
-# Convert 'Datum' and 'Uhrzeit' to datetime and extract the weekday
-df['Datetime'] = pd.to_datetime(df['Datum'] + ' ' + df['Uhrzeit'], format='%d.%m.%y %H:%M', errors='coerce')
-df['Weekday'] = df['Datetime'].dt.day_name()
+# Group data by day of week and resample to 15-minute intervals
+df['day_of_week'] = df.index.dayofweek
+df['time'] = df.index.time
 
-# Determine the season for each row
-df['Season'] = df['Datetime'].apply(get_season)
+# Split data into workdays, Saturday, and Sunday
+workdays = df[df['day_of_week'] < 5]
+saturday = df[df['day_of_week'] == 5]
+sunday = df[df['day_of_week'] == 6]
 
-# Group by Weekday and Season for average 'Wirkleistung'
-seasonal_avg = df.groupby(['Weekday', 'Season'])['Wirkleistung'].mean().reset_index()
+# Resample data for each group
+workdays_resampled = workdays.groupby('time')['Wirkleistung'].mean()
+saturday_resampled = saturday.groupby('time')['Wirkleistung'].mean()
+sunday_resampled = sunday.groupby('time')['Wirkleistung'].mean()
 
-# Save the DataFrame with Wirkleistung, Weekday, and Season
-df.to_csv('updated_data_with_wirkleistung_weekday_season.csv', index=False)
+# Function to map time to a continuous numerical range
+def map_time_to_range(time_series, start):
+    # Map each time to a numerical value starting from 'start'
+    time_to_num = {time: i + start for i, time in enumerate(sorted(set(time_series)))}
+    return time_series.map(time_to_num), len(time_to_num)
 
-# Save the seasonal averages
-seasonal_avg.to_csv('seasonal_avg_wirkleistung.csv', index=False)
+# Map times for workdays, Saturday, and Sunday to numerical ranges
+workdays_mapped, workdays_len = map_time_to_range(workdays_resampled.index, 0)
+saturday_mapped, saturday_len = map_time_to_range(saturday_resampled.index, workdays_len)
+sunday_mapped, sunday_len = map_time_to_range(sunday_resampled.index, workdays_len + saturday_len)
 
-# Inspect rows where 'Datetime' could not be parsed
-print("1")
-print(df[pd.isnull(df['Datetime'])])
-print(60*"-")
+# Plotting
+plt.figure(figsize=(12, 6))
+plt.plot(workdays_mapped, workdays_resampled, label='Workdays (Mon-Fri)', color='blue')
+plt.plot(saturday_mapped, saturday_resampled, label='Saturday', color='green')
+plt.plot(sunday_mapped, sunday_resampled, label='Sunday', color='red')
 
-print("2")
-print(df[df['Datetime'].isna() & df['Datum'].notna()])
+# Customize x-axis ticks and labels
+plt.xticks([0, workdays_len/2, workdays_len, workdays_len + saturday_len/2, workdays_len + saturday_len], ['Workdays Start', 'Workdays Mid', 'Saturday Start', 'Saturday Mid', 'Sunday'])
 
-# Plot the 'Wirkleistung' over time
-# plt.figure(figsize=(10, 5))
-# plt.plot(df['Datetime'], df['Wirkleistung'], label='Wirkleistung', linestyle='-', linewidth=0.1)
-# plt.xlabel('Date and Time')
-# plt.ylabel('Wirkleistung (Active Power)')
-# plt.title('Wirkleistung over Time')
-# plt.legend()
-# plt.grid(True)
-# plt.show()
+plt.title('Average Wirkleistung in 15-minute Intervals')
+plt.ylabel('Wirkleistung [kW]')
+plt.legend()
+plt.tight_layout()
+plt.show()
