@@ -5,6 +5,7 @@ import numpy as np
 
 # Ensure the 'data' directory exists
 input_file_path = 'data/Transformator_Alle.csv'
+output_file_path = 'data/Transformator_Alle_Updated.csv'  # Define output file path
 os.makedirs('data', exist_ok=True)
 
 # Load and preprocess the dataset
@@ -19,6 +20,19 @@ df[['P L Sum', 'S L Sum', 'U L1', 'I L1', 'U L2', 'I L2', 'U L3', 'I L3']] = df[
 df['cos_phi'] = df['P L Sum'] / df['S L Sum']
 df['Wirkleistung'] = (df['U L1'] * df['I L1'] + df['U L2'] * df['I L2'] + df['U L3'] * df['I L3']) * df['cos_phi']
 df['Wirkleistung'] = df['Wirkleistung'] / 1000
+
+# Function to categorize time period
+def categorize_time_period(row):
+    date = row.name.date()  # Extract date from index
+    if date.month == 11 or date.month <= 3:
+        return 'winter'
+    elif 5 <= date.month <= 9:
+        return 'summer'
+    else:
+        return 'übergang'
+
+# Apply the time period categorization
+df['time_period'] = df.apply(categorize_time_period, axis=1)
 
 # Group data by day of week and resample to 15-minute intervals
 df['day_of_week'] = df.index.dayofweek
@@ -36,7 +50,6 @@ sunday_resampled = sunday.groupby('time')['Wirkleistung'].mean()
 
 # Function to map time to a continuous numerical range
 def map_time_to_range(time_series, start):
-    # Map each time to a numerical value starting from 'start'
     time_to_num = {time: i + start for i, time in enumerate(sorted(set(time_series)))}
     return time_series.map(time_to_num), len(time_to_num)
 
@@ -48,14 +61,21 @@ sunday_mapped, sunday_len = map_time_to_range(sunday_resampled.index, workdays_l
 # Plotting
 plt.figure(figsize=(12, 6))
 plt.plot(workdays_mapped, workdays_resampled, label='Workdays (Mon-Fri)', color='blue')
-plt.plot(saturday_mapped, saturday_resampled, label='Saturday', color='green')
-plt.plot(sunday_mapped, sunday_resampled, label='Sunday', color='red')
+plt.plot(saturday_mapped + workdays_len, saturday_resampled, label='Saturday', color='green')  # Adjusted for continuity
+plt.plot(sunday_mapped + workdays_len + saturday_len, sunday_resampled, label='Sunday', color='red')  # Adjusted for continuity
 
 # Customize x-axis ticks and labels
-plt.xticks([0, workdays_len/2, workdays_len, workdays_len + saturday_len/2, workdays_len + saturday_len], ['Workdays Start', 'Workdays Mid', 'Saturday Start', 'Saturday Mid', 'Sunday'])
+# Set ticks at the start of each period: Workdays, Saturday, Sunday
+ticks = [0, workdays_len, workdays_len + saturday_len]
+labels = ['Workdays', 'Saturday', 'Sunday']
+plt.xticks(ticks, labels)
 
 plt.title('Average Wirkleistung in 15-minute Intervals')
 plt.ylabel('Wirkleistung [kW]')
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+
+# Save the updated DataFrame to an Excel file
+df.reset_index().to_excel(output_file_path, index=False)  # Reset index before saving to keep 'Datum_Uhrzeit' as a column
