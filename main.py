@@ -8,6 +8,7 @@ from scipy.ndimage import gaussian_filter1d
 # Ensure the 'data' directory exists
 input_file_path = 'data/Transformator_Alle.csv'
 os.makedirs('data', exist_ok=True)
+os.makedirs('plots', exist_ok=True)
 
 # Load and process dataset
 df = pd.read_csv(input_file_path, delimiter=';', decimal=',')
@@ -57,18 +58,36 @@ workdays = df[df['day_of_week'] < 5]
 saturday = df[df['day_of_week'] == 5]
 sunday = df[df['day_of_week'] == 6]
 
+def create_and_save_plots(workdays, saturday, sunday, sigma=2, save_path='plots/combined_plot.png'):
+    plt.figure(figsize=(18, 6))
+
+    # Erstellen des Plots für Arbeitstage
+    plt.subplot(1, 3, 1)
+    plot_wirkleistung(workdays, 'Wirkleistung Arbeitstage (Mo-Fr)', sigma)
+
+    # Erstellen des Plots für Samstag
+    plt.subplot(1, 3, 2)
+    plot_wirkleistung(saturday, 'Wirkleistung Samstag', sigma)
+
+    # Erstellen des Plots für Sonntag
+    plt.subplot(1, 3, 3)
+    plot_wirkleistung(sunday, 'Wirkleistung Sonntag', sigma)
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+
 # Define a function for plotting with smoothing
-def plot_wirkleistung(data, title, sigma=2, start_index=0):
-    # Filter data by time period
+def plot_wirkleistung(data, title, sigma=2):
+    # Filtern der Daten nach Zeitraum und andere Vorbereitungen
     data_winter = data[data['time_period'] == 'winter']
     data_summer = data[data['time_period'] == 'sommer']
     data_transition = data[data['time_period'] == 'übergang']
-    
-    # Create time index mapping
+
     time_range = sorted(set(data['time']))
     time_indices = np.arange(len(time_range))
-    
-    # Resample each time period group and check for non-empty data before plotting
+
     if not data_winter.empty:
         winter_resampled = data_winter.groupby('time')['Wirkleistung'].mean()
         smoothed_winter = gaussian_filter1d(winter_resampled, sigma=sigma)
@@ -83,30 +102,16 @@ def plot_wirkleistung(data, title, sigma=2, start_index=0):
         transition_resampled = data_transition.groupby('time')['Wirkleistung'].mean()
         smoothed_transition = gaussian_filter1d(transition_resampled, sigma=sigma)
         plt.plot(time_indices[:len(smoothed_transition)], smoothed_transition, label='Übergang', color='white', linestyle='--')
-    
+
     plt.title(title)
     plt.xlabel('Tageszeit')
     plt.ylabel('Wirkleistung [kW]')
     plt.legend()
+    plt.xticks([])
 
-# Plot for each group
-plt.figure(figsize=(18, 6))
+# Generieren und Speichern der kombinierten Plots
+create_and_save_plots(workdays, saturday, sunday, sigma=2, save_path='plots/combined_plot.png')
 
-# Workdays
-plt.subplot(1, 3, 1)
-plot_wirkleistung(workdays, 'Wirkleistung Arbeitstage (Mo-Fr)', sigma=2)
-
-# Saturday
-plt.subplot(1, 3, 2)
-plot_wirkleistung(saturday, 'Wirkleistung Samstag', sigma=2)
-
-# Sunday
-plt.subplot(1, 3, 3)
-plot_wirkleistung(sunday, 'Wirkleistung Sonntag', sigma=2)
-
-plt.tight_layout()
-plt.show()
-
-# Save the updated DataFrame to a CSV file
+# Speichern des aktualisierten DataFrame in eine CSV-Datei
 output_file_path = 'data/Transformator_Alle_Updated.csv'
 df.reset_index().to_csv(output_file_path, index=False)
