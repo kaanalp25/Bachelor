@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import holidays
 
 # Ensure the 'data' directory exists
 input_file_path = 'data/Transformator_Alle.csv'
@@ -12,6 +13,14 @@ df = pd.read_csv(input_file_path, delimiter=';', decimal=',')
 df['Datum'] = df['Datum'].str.strip()
 df['Uhrzeit'] = df['Uhrzeit'].str.strip()
 df['Datum_Uhrzeit'] = pd.to_datetime(df['Datum'] + ' ' + df['Uhrzeit'], format='%d.%m.%y %H:%M', errors='coerce')
+
+nat_rows = df[df['Datum_Uhrzeit'].isna()]
+if not nat_rows.empty:
+    print("Rows with NaT values in 'Datum_Uhrzeit':")
+    print(nat_rows[['Datum', 'Uhrzeit']])
+
+# Dropping row with NaT vlaues
+df = df.dropna(subset=['Datum_Uhrzeit'])
 df.set_index('Datum_Uhrzeit', inplace=True)
 
 # Convert to numeric and calculate 'Wirkleistung'
@@ -21,11 +30,29 @@ df['Wirkleistung'] = (df['U L1'] * df['I L1'] + df['U L2'] * df['I L2'] + df['U 
 df['Wirkleistung'] = df['Wirkleistung'] / 1000  # Convert to kW
 
 # Categorize time period
-df['time_period'] = df.apply(lambda row: 'winter' if row.name.month == 11 or row.name.month <= 3 else 'sommer' if 5 <= row.name.month <= 9 else 'übergang', axis=1)
+#df['time_period'] = df.apply(lambda row: 'winter' if row.name.month == 11 or row.name.month <= 3 else 'sommer' if 5 <= row.name.month <= 9 else 'übergang', axis=1)
+df['time_period'] = df.index.to_series().apply(lambda dt: 'winter' if dt.month == 11 or dt.month <= 3 else 'sommer' if 5 <= dt.month <= 9 else 'übergang')
+
 
 # Group by day of the week and time
 df['day_of_week'] = df.index.dayofweek
 df['time'] = df.index.time
+
+de_holidays = holidays.Germany(prov='NW')
+#de_holidays = holidays.country_holidays("DE", "NW")
+
+def adjust_for_holidays(row):
+    try:
+        if row.name.date() in de_holidays or (row.name.date().month == 12 and row.name.date().day in [24, 31] and row.name.weekday() != 6):
+            return 6 if row.name.date().weekday() != 6 else row['day_of_week']  # Treat as Sunday unless it's already Sunday
+        elif row.name.date().month == 12 and row.name.date().day in [24, 31]:
+            return 5  # Treat as Saturday
+        return row['day_of_week']
+    except Exception as e:
+        print(f"Error processing row: {row.name}, Exception: {e}")
+        raise e
+
+df['day_of_week'] = df.apply(adjust_for_holidays,axis=1)
 
 # Split data into workdays, Saturday, and Sunday
 workdays = df[df['day_of_week'] < 5]
